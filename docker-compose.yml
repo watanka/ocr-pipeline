@@ -1,0 +1,40 @@
+version: '3'
+
+services:
+  detection:
+    build:
+      dockerfile: Dockerfile.detection
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./configs:/app/configs
+    environment:
+      - PYTHONPATH=/app
+    networks:
+      - ocr-pipeline-network
+
+  recognition:
+    build:
+      dockerfile: Dockerfile.recognition
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./configs:/app/configs
+    environment:
+      - PYTHONPATH=/app
+    networks:
+      - ocr-pipeline-network
+
+
+  pipeline:
+    build:
+      dockerfile: Dockerfile.pipeline
+    ports:
+      - "8002:8002"
+    networks:
+      - ocr-pipeline-network
+
+
+networks:
+  ocr-pipeline-network:
+    driver: bridge
