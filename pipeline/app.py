@@ -1,21 +1,16 @@
 from fastapi import FastAPI 
 from pydantic import BaseModel
-from kafka import KafkaProducer
 import json
 import requests
 import yaml
+from producer import create_producer
+from contextlib import asynccontextmanager
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def load_config(config_path: str = "configs/config.yml") -> dict:
-    """
-    YAML 설정 파일을 읽어서 딕셔너리로 반환합니다.
-    
-    Args:
-        config_path (str): YAML 설정 파일 경로
-        
-    Returns:
-        dict: 설정 값들을 담은 딕셔너리
-    """
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
@@ -40,19 +35,42 @@ class RecognitionResponseV2(BaseModel):
     text: str
     confidence: float
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    producer = create_producer(
+        bootstrap_servers=pipeline_config["kafka"]["bootstrap_servers"],
+        batch_size=pipeline_config["kafka"]["batch_size"],
+        linger_ms=pipeline_config["kafka"]["linger_ms"],
+        retries=pipeline_config["kafka"]["retries"],
+        retry_interval=pipeline_config["kafka"]["retry_interval"],
+    )
 
-app = FastAPI()
+    app.state.producer = producer
+    yield
+    logger.info("Shutting down...")
+    if hasattr(app.state, 'producer'):
+        app.state.producer.flush()
+
+
+
+
+app = FastAPI(lifespan=lifespan)
+
+
 
 @app.post("/pipeline")
-def pipeline(req: DetectionRequest) -> list[RecognitionResponseV2]:
-    # detection에서 글자 탐지 후, 탐지된 글자 영역을 크롭한 이미지를 저장
+def pipeline(req: DetectionRequest): #-> list[RecognitionResponseV2]:
     detection_response = requests.post(f'{pipeline_config["detection_server"]}', json=req.model_dump()) 
-    # recognition 처리는 저장된 파일로부터 수행
     detection_result = detection_response.json()
-    recognition_response = requests.post(f'{pipeline_config["recognition_server"]}', json=detection_result)
-    recognition_result = recognition_response.json()    
+
     
-    return recognition_result
+    # 이미지 저장 없이, 탐지결과 이미지를 메세지 큐로 전달
+    # 인식모델이 해당 topic을 subscribe하고 있음
+    app.state.producer.produce(
+        topic=pipeline_config["kafka"]["topic"],
+        value=json.dumps(detection_result).encode('utf-8')
+    )
+    return {'status': 'processing', 'file_name': req.file_name}
 
 if __name__ == "__main__":
     import uvicorn
