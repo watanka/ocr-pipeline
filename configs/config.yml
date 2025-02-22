@@ -12,3 +12,10 @@ recognition:
   model_path: "models/str/clova/version_1_0_3.pt"
   postprocess: ["resize", "rotate"]
 
+pipeline:
+  detection_server: "http://detection:8000/detection"
+  recognition_server: "http://recognition:8001/recognition"
+  kafka:
+    bootstrap_servers: "kafka:9092"
+    batch_size: 16384
+    linger_ms: 1000

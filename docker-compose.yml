@@ -31,6 +31,10 @@ services:
       dockerfile: Dockerfile.pipeline
     ports:
       - "8002:8002"
+    volumes:
+      - ./configs:/app/configs
+    environment:
+      - PYTHONPATH=/app
     networks:
       - ocr-pipeline-network
 
