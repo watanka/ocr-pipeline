@@ -9,3 +9,11 @@
 - `/recognition`
 - `/pipeline`
 
+### Requirements
+- Docker
+
+
+### How To Run
+```
+./run.sh
+```
