@@ -1,28 +1,29 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
-import logging
+from model import RecognitionRequestV2, RecognitionResponseV2
+from recognition_model import process_recognition_model
+from consumer import OCRConsumer
+from contextlib import asynccontextmanager
 import yaml
-from pathlib import Path
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
 
+    config = load_config()
+    recognition_config = config["recognition"]
+    app.state.config = recognition_config
+    consumer = OCRConsumer(bootstrap_servers=config['pipeline']['kafka']['bootstrap_servers'],
+                            topic=config['pipeline']['kafka']['topic'],
+                            group_id=config['pipeline']['kafka']['group_id'],
+                            )
+    consumer.run()
+    yield
+    # Shutdown
+    consumer.stop()  # consumer에 stop 메서드 추가 필요
 
-class RecognitionRequestV1(BaseModel):
-    file_name: str
-    crop_file_name: str
+app = FastAPI(lifespan=lifespan)
 
-class RecognitionRequestV2(BaseModel):
-    id: str
-    file_name: str
-    image: str # base64 encoded
-
-
-class RecognitionResponseV2(BaseModel):
-    id: str
-    file_name: str
-    text: str
-    confidence: float
 
 
 def load_config(config_path: str = "configs/config.yml") -> dict:
@@ -47,26 +48,7 @@ def load_config(config_path: str = "configs/config.yml") -> dict:
 
 @app.post("/recognition")
 def recognition(crop_requests: list[RecognitionRequestV2]) -> list[RecognitionResponseV2]:
-    config = load_config()
-    recognition_config = config["recognition"]
-
-
-    logging.info(f'전처리: {recognition_config["preprocess"]}')
-    logging.info(f'{recognition_config["model"]}, {recognition_config["model_path"]} 동작 검증...')
-    logging.info(f'모델 추론 시작...')
-    logging.info(f'모델 추론 완료!')
-    logging.info(f'후처리: {recognition_config["postprocess"]}')
-
-
-    return [
-        RecognitionResponseV2(
-            id=req.id,
-            file_name=req.file_name,
-            text=f'hello',
-            confidence=0.90
-        )
-        for req in crop_requests
-    ]
+    return process_recognition_model(app.state.config, crop_requests)
 
 
 if __name__ == "__main__":

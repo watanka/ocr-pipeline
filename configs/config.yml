@@ -16,6 +16,10 @@ pipeline:
   detection_server: "http://detection:8000/detection"
   recognition_server: "http://recognition:8001/recognition"
   kafka:
-    bootstrap_servers: "kafka:9092"
+    bootstrap_servers: "kafka:29092"
+    topic: "ocr_topic"
+    group_id: "ocr_pipeline_group"
     batch_size: 16384
     linger_ms: 1000
+    retries: 5
+    retry_interval: 5
