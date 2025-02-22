@@ -1,0 +1,14 @@
+detection:
+  preprocess: ["resize", "normalize", "to_tensor"]
+  model: "craft" # ["east", "craft", "pan", "panpp", "fast"]
+  model_path: "models/std/craft/version_1_0_1.pt"
+  bbox_type: "quad" # ["quad", "polygon"]
+  postprocess: ["resize", "rotate"]
+
+
+recognition:
+  preprocess: ["resize", "normalize", "to_tensor"]
+  model: "clova"
+  model_path: "models/str/clova/version_1_0_3.pt"
+  postprocess: ["resize", "rotate"]
+
