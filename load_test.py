@@ -31,11 +31,11 @@ def main():
     image_files = [os.path.join(TEST_IMAGE_DIR, f) for f in os.listdir(TEST_IMAGE_DIR) if f.endswith(('.png', '.jpg', '.jpeg'))]
     
     # /ocr 테스트
-    print("Starting /ocr load test...")
-    ocr_total_time = 0
-    for image_path in image_files:
-        ocr_total_time += load_test(OCR_URL, image_path, N // len(image_files))
-    print(f"Total time for /ocr: {ocr_total_time:.2f} seconds")
+    # print("Starting /ocr load test...")
+    # ocr_total_time = 0
+    # for image_path in image_files:
+    #     ocr_total_time += load_test(OCR_URL, image_path, N // len(image_files))
+    # print(f"Total time for /ocr: {ocr_total_time:.2f} seconds")
 
     # /batch_ocr 테스트
     print("Starting /batch_ocr load test...")
