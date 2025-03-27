@@ -1,40 +1,138 @@
-version: '3'
+version: '3.8'
 
 services:
-  detection:
-    build:
-      dockerfile: Dockerfile.detection
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"  # AMQP 프로토콜
+      - "15672:15672"  # 관리 UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - ocr-network
+
+  redis:
+    image: redis:6
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - ocr-network
+
+  std-detection:
+    build: 
+      context: .
+      dockerfile: std-detection/Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./configs:/app/configs
+      - ./std-detection:/app
+      - ./monitoring:/app/monitoring  
+      - ./common:/app/common
     environment:
-      - PYTHONPATH=/app
+      - CUDA_VISIBLE_DEVICES=0
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     networks:
-      - ocr-pipeline-network
+      - ocr-network
 
-  recognition:
-    build:
-      dockerfile: Dockerfile.recognition
+  str-recognition:
+    build: 
+      context: .
+      dockerfile: str-recognition/Dockerfile
     ports:
       - "8001:8001"
     volumes:
-      - ./configs:/app/configs
+      - ./str-recognition:/app
+      - ./monitoring:/app/monitoring
+      - ./message_queue:/app/message_queue
+      - ./common:/app/common
     environment:
-      - PYTHONPATH=/app
+      - CUDA_VISIBLE_DEVICES=0
+      - QUEUE_TYPE=rabbitmq
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     networks:
-      - ocr-pipeline-network
-
+      - ocr-network
 
   pipeline:
     build:
-      dockerfile: Dockerfile.pipeline
+      context: .
+      dockerfile: pipeline/Dockerfile
     ports:
       - "8002:8002"
+    volumes:
+      - ./pipeline:/app
+      - ./monitoring:/app/monitoring
+      - ./message_queue:/app/message_queue
+      - ./common:/app/common
+    environment:
+      - QUEUE_TYPE=rabbitmq
+      - QUEUE_URL=amqp://admin:admin@rabbitmq:5672/%2F
+      - DETECTION_URL=http://std-detection:8000/detection
+      - RECOGNITION_URL=http://str-recognition:8001/recognition
+      - BATCH_RECOGNITION_URL=http://str-recognition:8001/batch_recognition
+      - REQUEST_TIMEOUT=30
     networks:
-      - ocr-pipeline-network
+      - ocr-network
+    depends_on:
+      - std-detection
+      - str-recognition
+      - rabbitmq
+      - redis
 
+  streamlit:
+    build: ./streamlit
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./streamlit:/app
+    depends_on:
+      - pipeline
+    networks:
+      - ocr-network
 
 networks:
-  ocr-pipeline-network:
+  ocr-network:
     driver: bridge
+    name: ocr-network
+
+volumes:
+  logs: 
+    name: ocr_logs

@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Log files
+logs/
+*.log
+
+# 모니터링 결과
+load_test_results*/
+analysis_results*/
+comparison_results*/
+before_mq_results*/
+after_mq_results*/
+
+# Virtual Environment
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 업로드 및 결과 이미지
+pipeline/static/uploads/
+pipeline/static/results/
+
+# 기타
+.DS_Store
+Thumbs.db 
+
+# 모델 웨이트
+*.pth
+**/*.pth
+test_image/*
