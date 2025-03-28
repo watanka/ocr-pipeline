@@ -105,9 +105,9 @@ async def detect_text(request: DetectionRequest):
                 region_img_base64 = image2base64(region_img)
                 
                 # TextRegion 객체 생성
-                region_id = f"{request.file_name.split('.')[0]}_{i}"
+                region_id = f"{request.request_id}_{i}"
                 text_region = SingleDetection(
-                    id=region_id,
+                    request_id=region_id,
                     image=region_img_base64,
                     bbox=box_points,
                     polygon=[[int(point) for point in p.tolist()] for p in poly],
@@ -146,7 +146,7 @@ async def detect_text(request: DetectionRequest):
         
         # 응답 준비
         response = DetectionResponse(
-            id = request.id,
+            request_id = request.request_id,
             regions=text_regions,
             result_image=None,
             total_regions=len(text_regions)

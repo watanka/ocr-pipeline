@@ -119,10 +119,10 @@ class RabbitMQ(MessageQueue):
     ) -> BatchRecognitionResponse:
         start_time = time.time()
         result = None
-        future = asyncio.Future()
+        # future_queue = asyncio.Queue()  # Future 객체를 관리할 큐 생성
         
+        ## TODO: 큐에서 받아온 메세지를 런타임에서 처리할 수 있는 방법이 필요함
         async def process_str_message(message: aio_pika.IncomingMessage):
-            nonlocal result
             async with message.process():
                 try:
                     message_body = message.body.decode()
@@ -130,11 +130,14 @@ class RabbitMQ(MessageQueue):
                     logger.info(f"Received message: {body.keys()}")
                     
                     if filter_fn is None or filter_fn(body):
-
                         recognition_results = body.get("results", [])
                         recognition_results = [RecognitionResult.model_validate(result) for result in recognition_results]
                         result = BatchRecognitionResponse(request_id=body.get("request_id"), results=recognition_results)
-                        future.set_result(result)
+                        
+                        # 새로운 Future 생성 및 설정
+                        # future = asyncio.Future()
+                        # future.set_result(result)
+                        # await future_queue.put(future)  # Future를 큐에 추가
                 except Exception as e:
                     logger.error(f"Error processing message: {str(e)}")
                     logger.error(traceback.format_exc())
@@ -149,8 +152,9 @@ class RabbitMQ(MessageQueue):
             logger.info(f"Started consuming messages from queue: {queue_name}")
             
             try:
-                # 타임아웃까지 대기
-                result = await asyncio.wait_for(future, timeout=timeout)
+                # 타임아웃까지 대기하며 Future를 큐에서 가져옴
+                future = await asyncio.wait_for(future_queue.get(), timeout=timeout)
+                result = await future
                 return result
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout waiting for message from queue: {queue_name}")

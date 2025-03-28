@@ -53,3 +53,5 @@ Thumbs.db
 *.pth
 **/*.pth
 test_image/*
+**/*/results/*
+

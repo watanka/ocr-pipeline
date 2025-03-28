@@ -257,7 +257,7 @@ def convert2image(region: SingleDetection) -> np.ndarray:
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
     if img is None:
-        logger.warning(f"Failed to decode image for region {i} (ID: {region.id})")
+        logger.warning(f"Failed to decode image for region {i} (ID: {region.request_id})")
         raise ValueError("Failed to decode image")
     
     # BGR에서 RGB로 변환

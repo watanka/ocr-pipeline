@@ -1,33 +1,33 @@
 version: '3.8'
 
 services:
-  rabbitmq:
-    image: rabbitmq:3-management
-    ports:
-      - "5672:5672"  # AMQP 프로토콜
-      - "15672:15672"  # 관리 UI
-    environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=admin
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    networks:
-      - ocr-network
+  # rabbitmq:
+  #   image: rabbitmq:3-management
+  #   ports:
+  #     - "5672:5672"  # AMQP 프로토콜
+  #     - "15672:15672"  # 관리 UI
+  #   environment:
+  #     - RABBITMQ_DEFAULT_USER=admin
+  #     - RABBITMQ_DEFAULT_PASS=admin
+  #   healthcheck:
+  #     test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #   networks:
+  #     - ocr-network
 
-  redis:
-    image: redis:6
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    networks:
-      - ocr-network
+  # redis:
+  #   image: redis:6
+  #   ports:
+  #     - "6379:6379"
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #   networks:
+  #     - ocr-network
 
   std-detection:
     build: 
@@ -41,11 +41,11 @@ services:
       - ./common:/app/common
     environment:
       - CUDA_VISIBLE_DEVICES=0
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    # depends_on:
+      # rabbitmq:
+      #   condition: service_healthy
+      # redis:
+      #   condition: service_healthy
     deploy:
       resources:
         reservations:
@@ -71,11 +71,11 @@ services:
       - CUDA_VISIBLE_DEVICES=0
       - QUEUE_TYPE=rabbitmq
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672/%2F
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    # depends_on:
+      # rabbitmq:
+      #   condition: service_healthy
+      # redis:
+      #   condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -114,8 +114,8 @@ services:
     depends_on:
       - std-detection
       - str-recognition
-      - rabbitmq
-      - redis
+      # - rabbitmq
+      # - redis
 
   streamlit:
     build: ./streamlit

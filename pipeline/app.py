@@ -3,7 +3,7 @@ import uuid
 import logging
 import traceback
 import sys
-from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi import FastAPI, HTTPException, File, UploadFile, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,17 +11,23 @@ from pydantic import BaseModel
 from typing import Dict, Optional, List
 import uvicorn
 import json
-
+import asyncio
+from functools import partial
 from datetime import datetime
+from message_queue.bucket import BatchBucket, STDBucket, STRBucket
+from message_queue.monitor import BucketMonitor, STDBucketMonitor, STRBucketMonitor
 from message_queue.factory import MessageQueueFactory
 from message_queue.base import MessageQueue
 from message_queue.tasks import create_detection_message
 from processors import (process_std, 
                         process_str, 
+                        process_str_with_bucket,
                         create_result_image, 
                         convert2image, 
-                        convert_to_base64
+                        convert_to_base64,
                         )
+
+from file_utils import save_result
 from common.schema import OCRResponse, PingResponse, DetectionResponse, BatchRecognitionResponse, BatchRecognitionRequest, RecognitionResult
 from common.logger import setup_logger, LOG_FORMATS
 
@@ -98,6 +104,19 @@ async def get_metrics():
         "metrics": summary
     }
 
+def preprocess_std_message(messages: List[DetectionResponse]):
+    """std버켓에 넣기 전 처리"""
+    return messages.regions
+
+def postprocess_std_message(messages: List[DetectionResponse]):
+    """std버켓에서 꺼낼 때 처리"""
+    return DetectionResponse(
+        request_id=str(uuid.uuid4())[:10],
+        regions=messages,
+        result_image=None,
+        total_regions=len(messages)
+    )
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("OCR Pipeline API started")
@@ -108,24 +127,43 @@ async def startup_event():
     logger.info("Ready to process requests")
     
     # 메시지 큐 연결
-    await message_queue.connect()
+    # await message_queue.connect()
+
+    app.std_bucket = STDBucket(max_batch_size=10, wait_time=1)
+    app.str_bucket = STRBucket()
+
+
+    app.std_bucket_monitor = STDBucketMonitor(
+        bucket=app.std_bucket,
+        interval = 10.0
+    )
+    app.result_queue = asyncio.Queue()
+    app.str_bucket_monitor = STRBucketMonitor(bucket=app.str_bucket, result_queue=app.result_queue)
+
+    
+    asyncio.create_task(app.std_bucket_monitor.monitor(process_message = postprocess_std_message, 
+                                                       callback=partial(process_str_with_bucket, app.str_bucket)))
+    asyncio.create_task(app.str_bucket_monitor.monitor())
         
 
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down Pipeline API")
     # 메시지 큐 연결 해제
-    await message_queue.disconnect()
+    # await message_queue.disconnect()
     logger.info("Service stopped")
+
+
 @app.post("/ocr")
-async def process_ocr(file: UploadFile = File(...)) -> OCRResponse:
+async def process_ocr(file: UploadFile = File(...), 
+                      background_tasks: BackgroundTasks = BackgroundTasks()) -> OCRResponse:
     """
     OCR 파이프라인 실행
     """
     try:
         # 요청 정보 로깅
         logger.info(f"OCR request received for file: {file.filename}")
-        request_id = str(uuid.uuid4())[:10] + datetime.now().strftime("%Y%m%d%H%M%S")
+        request_id = str(uuid.uuid4())[:10] + datetime.now().strftime("%Y%m%d%H%M%S") + "_" + file.filename.split('.')[0]
         
         # 모니터링 시작
         monitor.start_timer("ocr_total")
@@ -159,6 +197,8 @@ async def process_ocr(file: UploadFile = File(...)) -> OCRResponse:
         resources = monitor.get_system_resources()
         logger.info(f"Resource usage: {resources}")
 
+        background_tasks.add_task(save_result, image, file.filename, request_id, std_result, str_result)
+
         return OCRResponse(
             id=request_id,
             file_name=file.filename,
@@ -174,8 +214,9 @@ async def process_ocr(file: UploadFile = File(...)) -> OCRResponse:
 
 
 @app.post("/batch_ocr", response_model=OCRResponse)
-async def process_ocr_with_queue(file: UploadFile = File(...), config: Optional[Dict] = None):
-    request_id = str(uuid.uuid4())[:10] + datetime.now().strftime("%Y%m%d%H%M%S")
+async def process_ocr_with_queue(file: UploadFile = File(...), 
+                                background_tasks: BackgroundTasks = BackgroundTasks()) -> OCRResponse:
+    request_id = str(uuid.uuid4())[:10] + datetime.now().strftime("%Y%m%d%H%M%S") + "_" + file.filename.split('.')[0]
     try:
         monitor.start_timer("pipeline_total")
         logger.info(f"OCR request received for file: {file.filename}")
@@ -187,18 +228,31 @@ async def process_ocr_with_queue(file: UploadFile = File(...), config: Optional[
         
         # STD 처리
         monitor.start_timer("std_detection")
-        detection_result: DetectionResponse = await process_std(request_id, img_base64, file.filename)
+        std_result: DetectionResponse = await process_std(request_id, img_base64, file.filename)
         det_time = monitor.stop_timer("std_detection")
-        logger.warning(f"STD completed in {det_time:.4f}s, found {len(detection_result.regions)} regions")
-        monitor.record_metric("detected_regions", len(detection_result.regions))
+        logger.warning(f"STD completed in {det_time:.4f}s, found {len(std_result.regions)} regions")
+        monitor.record_metric("detected_regions", len(std_result.regions))
         
+        # STD 결과 큐에 발행
+        # detection_message = create_detection_message(detection_result)
+        # await message_queue.publish("std_results", detection_message)
+
+
+        # STD 결과 버켓에 저장
+        await app.std_bucket.add(std_result)
+        logger.info(f"{len(std_result.regions)} STD result added to bucket")
+
         # STR 처리
         monitor.start_timer("str_recognition")
-        str_result: BatchRecognitionResponse = await message_queue.consume(
-            "str_results",
-            timeout=30.0,
-            filter_fn=lambda x: x
-        )
+        # str_result: BatchRecognitionResponse = await message_queue.consume(
+        #     "str_results",
+        #     timeout=30.0,
+        #     filter_fn=lambda x: x
+        # )
+
+        str_result = await app.result_queue.get()
+        str_result: BatchRecognitionResponse = BatchRecognitionResponse.model_validate(dict(str_result))
+
         str_time = monitor.stop_timer("str_recognition")
         logger.info(f"STR completed in {str_time:.4f}s")
 
@@ -208,6 +262,9 @@ async def process_ocr_with_queue(file: UploadFile = File(...), config: Optional[
         # 리소스 사용량 기록
         resources = monitor.get_system_resources()
         logger.info(f"Resource usage: {resources}")
+
+
+        background_tasks.add_task(save_result, image, file.filename, request_id, std_result, str_result)
 
         return OCRResponse(
             id=request_id,

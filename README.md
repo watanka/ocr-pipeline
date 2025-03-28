@@ -67,7 +67,11 @@ OCR 파이프라인은 성능 모니터링 및 테스트 기능을 제공합니�
 - 배치처리(/pipeline): STD 결과를 메세지 큐를 통해 전송하면, 최대 배치 사이즈가 차거나 대기 시간이 지나기 전까지 배치를 모은 후 STR 모델로 처리함
 
 (*실제 결과들은 비동기로 저장된다고 가정하고 진행함.)  
-- N=100 기준, 일괄처리: 339.56초 소요
+- N=10 46.87초, 25.10초
+- N=100 401.00초, 233.91초
+- N=1000 11521.61초, 6064.06초
+
+약 75% 정도의 성능차이
 
 
 
@@ -94,7 +98,7 @@ N에 따라 일괄 처리 대비 배치 처리로 절약되는 시간을 정리�
 
 계산 방법
 - 일괄처리 = STD + STR  
-- 배치처리 = STD + 메세지큐 전송시간 + STR(일괄처리)  
+- 배치처리 = STD + 버켓처리 + STR(일괄처리)  
 
 - 예를 들어 문서 N장 처리하고, 문서 당 평균 박스 수가 200개라고 한다면,  
    - 일괄처리 = (Tstd + Tstr) x N = (1.5 + 1.8) x 100
@@ -116,6 +120,5 @@ N에 따라 일괄 처리 대비 배치 처리로 절약되는 시간을 정리�
 - STD: CRAFT (Character-Region Awareness For Text detection)
 - STR: Deep Text Recognition Benchmark
 - Docker & Docker Compose
-- RabbitMQ, Redis, Kafka
 - FastAPI
 - asyncio

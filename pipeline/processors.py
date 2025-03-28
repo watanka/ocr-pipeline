@@ -9,6 +9,8 @@ import os
 from common.schema import DetectionResponse, DetectionRequest, BatchRecognitionRequest, BatchRecognitionResponse
 from fastapi import UploadFile
 from common.logger import setup_logger, LOG_FORMATS
+from message_queue.bucket import BatchBucket
+
 
 # 로거 설정
 logger = setup_logger(
@@ -22,7 +24,7 @@ RECOGNITION_URL = os.getenv("RECOGNITION_URL", "http://str-recognition:8001/reco
 BATCH_RECOGNITION_URL = os.getenv("BATCH_RECOGNITION_URL", "http://str-recognition:8001/batch_recognition")
 
 # 타임아웃 설정 (초)
-TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
+TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "60"))
 
 
 async def convert_to_base64(file: UploadFile) -> str:
@@ -53,10 +55,36 @@ async def convert2image(file: UploadFile):
     
     return image
 
+def base64_to_image(base64_string: str) -> np.ndarray:
+    try:
+        # 디코딩
+        image_data = base64.b64decode(base64_string)
+
+        if not image_data:
+            return None
+
+        # NumPy 배열 변환
+        np_arr = np.frombuffer(image_data, np.uint8)
+
+        if np_arr.size == 0:
+            return None
+
+        # OpenCV 디코딩
+        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        if image is None:
+            return None
+
+        return image
+
+    except Exception as e:
+        print(f"Error decoding base64 image: {e}")
+        raise
+
 async def process_std(request_id: str, encoded_image: str, file_name: str) -> DetectionResponse:
     try:
         request_data = DetectionRequest(
-            id=request_id,
+            request_id=request_id,
             file_name=file_name,
             image=encoded_image
         )
@@ -79,7 +107,7 @@ async def process_std(request_id: str, encoded_image: str, file_name: str) -> De
 async def process_str(detection_result: DetectionResponse) -> BatchRecognitionResponse:
     try:
         batch_request = BatchRecognitionRequest(
-            request_id=detection_result.id,
+            request_id=detection_result.request_id,
             regions=detection_result.regions
         )
         # API 호출
@@ -89,6 +117,29 @@ async def process_str(detection_result: DetectionResponse) -> BatchRecognitionRe
             result: BatchRecognitionResponse = BatchRecognitionResponse.model_validate(response.json())
             
             return result
+            
+    except Exception as e:
+        logger.error(f"STR 처리 중 오류 발생: {str(e)}")
+        raise
+
+
+async def process_str_with_bucket(bucket: BatchBucket, detection_result: DetectionResponse) -> BatchRecognitionResponse:
+    
+    try:
+        batch_request = BatchRecognitionRequest(
+            request_id=detection_result.request_id,
+            regions=detection_result.regions
+        )
+        # API 호출
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.post(BATCH_RECOGNITION_URL, json=batch_request.model_dump())
+            response.raise_for_status()
+            result: BatchRecognitionResponse = BatchRecognitionResponse.model_validate(response.json())
+            
+        await bucket.add(result)
+        
+        return result
+        
             
     except Exception as e:
         logger.error(f"STR 처리 중 오류 발생: {str(e)}")

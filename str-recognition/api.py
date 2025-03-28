@@ -148,10 +148,10 @@ async def batch_recognize_text(request: BatchRecognitionRequest):
                 img = convert2image(region)
                 processed_images.append(img)
                 valid_indices.append(i)
-                bboxes[region.id] = region.bbox
+                bboxes[region.request_id] = region.bbox
                 
             except Exception as e:
-                logger.error(f"Error preprocessing region {i} (ID: {region.id}): {str(e)}")
+                logger.error(f"Error preprocessing region {i} (ID: {region.request_id}): {str(e)}")
                 continue
         
         preprocess_time = monitor.stop_timer("preprocessing")
@@ -187,9 +187,9 @@ async def batch_recognize_text(request: BatchRecognitionRequest):
                     processed_text = post_process_text(text)
                     
                     results.append(RecognitionResult(
-                        id=region.id,
+                        id=region.request_id,
                         text=processed_text,
-                        bbox=bboxes[region.id]
+                        bbox=bboxes[region.request_id]
                     ))
                     
                     # logger.info(f"Region {idx} (ID: {region.id}) recognized: '{processed_text}'")
@@ -204,10 +204,10 @@ async def batch_recognize_text(request: BatchRecognitionRequest):
                 for idx in valid_indices:
                     region = regions[idx]
                     results.append(RecognitionResult(
-                        id=region.id,
+                        id=region.request_id,
                         text="",
                         error="Model inference failed",
-                        bbox=bboxes[region.id]
+                        bbox=bboxes[region.request_id]
                     ))
         
         inference_time = monitor.stop_timer("model_inference")
@@ -217,7 +217,7 @@ async def batch_recognize_text(request: BatchRecognitionRequest):
         for i, region in enumerate(regions):
             if i not in valid_indices:
                 results.append(RecognitionResult(
-                    id=region.id,
+                    id=region.request_id,
                     text="",
                     error="Preprocessing failed",
                     bbox=region.bbox
@@ -283,8 +283,8 @@ async def str_api_call(message):
 
         # 결과 메시지 생성
         recognition_message = create_recognition_message(response)
-        logger.info(f"Publishing result message with request_id: {recognition_message.get('request_id')}")
-        await app.mq.publish("str_results", recognition_message)
+        # logger.info(f"Publishing result message with request_id: {recognition_message.get('request_id')}")
+        # await app.mq.publish("str_results", recognition_message)
         
         return response
     except Exception as e:
@@ -301,25 +301,25 @@ async def startup_event():
     logger.info("STR Recognition API startup event started")
     try:
         # 메시지 큐 클라이언트 생성
-        logger.info("Creating message queue client...")
-        logger.info(f"Using RabbitMQ URL: {RABBITMQ_URL}")
-        app.mq = MessageQueueFactory.create("rabbitmq", url=RABBITMQ_URL)
-        logger.info("Message queue client created successfully")
+        # logger.info("Creating message queue client...")
+        # logger.info(f"Using RabbitMQ URL: {RABBITMQ_URL}")
+        # # app.mq = MessageQueueFactory.create("rabbitmq", url=RABBITMQ_URL)
+        # logger.info("Message queue client created successfully")
         
-        # 메시지 큐 연결
-        logger.info("Attempting to connect to RabbitMQ...")
-        await app.mq.connect()
-        logger.info("Successfully connected to RabbitMQ")
+        # # 메시지 큐 연결
+        # logger.info("Attempting to connect to RabbitMQ...")
+        # await app.mq.connect()
+        # logger.info("Successfully connected to RabbitMQ")
         
         # STD 결과 구독 시작 (백그라운드 태스크로 실행)
         # asyncio.create_task(subscribe_to_std_results())
 
-        bucket = BatchBucket(max_batch_size=100, wait_time=10)
-        monitor = BucketMonitor(bucket, 10)
+        # bucket = BatchBucket(max_batch_size=100, wait_time=10)
+        # monitor = BucketMonitor(bucket, 10)
 
-        await app.mq.pour(bucket, 'std_results')
-        asyncio.create_task(monitor.monitor(str_api_call))
-        logger.info("Started subscription task for STD results queue")
+        # await app.mq.pour(bucket, 'std_results')
+        # asyncio.create_task(monitor.monitor(str_api_call))
+        # logger.info("Started subscription task for STD results queue")
         
         logger.info("STR Recognition API startup completed successfully")
     except Exception as e:
